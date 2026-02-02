@@ -1,0 +1,192 @@
+HealthProof "Research-First" MVP
+1. Project Overview & Strategy
+
+Build HealthProof, a platform where health claims are forecasted by users and then analyzed by AI using scientific literature (to "say who's right and who's wrong"). The MVP must function primarily as a tool to confirm or refute health claims. Users should find value in the AI-summarized papers even if they do not participate in the forecasting. Monetization will eventually layer SaaS (AI Research Pro), Sweepstakes (Virtual Currency), and B2B Data Sales.
+
+Use Structured Outputs for extraction to reduce invalid fields: https://platform.openai.com/docs/guides/structured-outputs
+
+Run user-generated claims through Moderation: https://platform.openai.com/docs/guides/moderation
+
+Store:
+
+prompts/version
+
+raw structured JSON
+
+the list of paper IDs cited in the synthesis
+
+B. “Social Sentiment” UI (Priority 2)
+Key change: forecast data model
+
+Do not store a single userSentiment float as the source of truth. Store atomic forecast actions and compute aggregates.
+
+UI elements
+
+Sentiment gauge: % YES / % NO
+
+AI vs crowd discrepancy: compare AI confidence vs market sentiment
+
+Forecasting interface:
+
+“Buy YES / Buy NO” with virtual credits
+
+Each forecast is recorded as a row (append-only)
+
+Aggregation strategy
+
+Compute sentiment from Forecast rows
+
+Optionally maintain denormalized counters on Market for fast reads, updated transactionally:
+
+Prisma transactions: https://www.prisma.io/docs/orm/prisma-client/queries/transactions
+
+C. Hybrid Monetization (Priority 3)
+
+Free tier:
+
+claim summary + 3 evidence cards
+
+Pro tier (SaaS):
+
+unlimited evidence cards
+
+deeper extraction (if full text available)
+
+“new paper alerts” (scheduled jobs)
+
+Stripe subscriptions + customer portal:
+
+Subscriptions: https://docs.stripe.com/subscriptions
+
+Customer portal: https://docs.stripe.com/customer-management
+
+Sweepstakes compliance layer (later):
+
+separate ledgers for “Gold Credits” (virtual) vs “Sweeps Tokens” (redeemable)
+
+enforce jurisdiction gating + KYC as required (defer until product/legal ready)
+
+4) Database Schema (Prisma) 
+(Prisma relations reference: https://www.prisma.io/docs/orm/prisma-schema/data-model/relations
+)
+
+5) Implementation Roadmap (Revised)
+Phase 1 — Research Dashboard (Build first)
+
+UI: Claim detail page with two-pane layout
+
+Left: Evidence cards list
+
+Right: Global synthesis + AI confidence
+
+API (Next.js Route Handlers):
+
+POST /api/claims/:id/dossier → enqueue BullMQ job
+
+GET /api/jobs/:jobId → status/progress/error
+
+GET /api/claims/:id → dossier payload (from Postgres; cached in Redis)
+
+Worker:
+
+Fetch papers (PubMed/S2)
+
+Store papers + claim-paper joins (dedupe)
+
+Chunk text, embed, store vectors (pgvector)
+
+Generate extraction via Structured Outputs
+
+Generate synthesis via Responses API
+
+Key docs:
+
+Next.js Route Handlers: https://nextjs.org/docs/app/getting-started/route-handlers
+
+BullMQ: https://docs.bullmq.io/
+
+PubMed E-utilities: https://www.ncbi.nlm.nih.gov/books/NBK25500/
+
+Semantic Scholar API docs: https://api.semanticscholar.org/api-docs/
+
+pgvector: https://github.com/pgvector/pgvector
+
+Prisma + Postgres extensions (vector Unsupported): https://www.prisma.io/docs/postgres/database/postgres-extensions
+
+OpenAI Structured Outputs: https://platform.openai.com/docs/guides/structured-outputs
+
+OpenAI Responses API: https://platform.openai.com/docs/api-reference/responses
+
+Phase 2 — Sentiment & Forecasting
+
+UI: Sentiment gauge + “Buy YES/NO”
+
+DB: insert Forecast rows; update aggregates transactionally:
+
+Prisma transactions: https://www.prisma.io/docs/orm/prisma-client/queries/transactions
+
+Optional: Redis pub/sub for live gauge updates:
+
+Redis docs: https://redis.io/docs/latest/
+
+Phase 3 — Monetization & Gating
+
+Gate: Free vs Pro evidence card limits
+
+Payments: Stripe subscription + customer portal
+
+Stripe Billing: https://docs.stripe.com/billing
+
+Stripe subscriptions overview: https://docs.stripe.com/billing/subscriptions/overview
+
+Customer portal: https://docs.stripe.com/customer-management
+
+Paper alerts:
+
+scheduled checks via platform cron or queue scheduler (implementation-dependent)
+
+6) Documentation (key references, plain URLs)
+
+Next.js App Router: https://nextjs.org/docs/app
+
+Next.js Route Handlers: https://nextjs.org/docs/app/getting-started/route-handlers
+
+Tailwind + Next.js: https://tailwindcss.com/docs/guides/nextjs
+
+shadcn/ui: https://ui.shadcn.com/docs
+
+Recharts: https://recharts.org/
+
+BullMQ: https://docs.bullmq.io/
+
+Redis: https://redis.io/docs/latest/
+
+Prisma docs: https://www.prisma.io/docs
+
+Prisma relations: https://www.prisma.io/docs/orm/prisma-schema/data-model/relations
+
+Prisma transactions: https://www.prisma.io/docs/orm/prisma-client/queries/transactions
+
+Prisma Postgres extensions (vector Unsupported): https://www.prisma.io/docs/postgres/database/postgres-extensions
+
+pgvector: https://github.com/pgvector/pgvector
+
+PubMed E-utilities: https://www.ncbi.nlm.nih.gov/books/NBK25500/
+
+Semantic Scholar API docs: https://api.semanticscholar.org/api-docs/
+
+OpenAI Responses API: https://platform.openai.com/docs/api-reference/responses
+
+OpenAI Structured Outputs: https://platform.openai.com/docs/guides/structured-outputs
+
+OpenAI embeddings: https://platform.openai.com/docs/guides/embeddings
+
+OpenAI moderation: https://platform.openai.com/docs/guides/moderation
+
+Privy docs: https://docs.privy.io/
+
+Wagmi (React) getting started: https://wagmi.sh/react/getting-started
+
+Stripe Billing: https://docs.stripe.com/billing
+
+Stripe Customer Portal: https://docs.stripe.com/customer-management

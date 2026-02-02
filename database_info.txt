@@ -1,0 +1,178 @@
+Schema (Prisma) — Updated
+enum MarketStatus {
+  RESEARCHING
+  ACTIVE
+  RESOLVED
+}
+
+enum Stance {
+  SUPPORTS
+  REFUTES
+  NEUTRAL
+}
+
+enum ForecastSide {
+  YES
+  NO
+}
+
+enum JobStatus {
+  QUEUED
+  RUNNING
+  SUCCEEDED
+  FAILED
+}
+
+model Claim {
+  id              String      @id @default(uuid())
+  title           String
+  normalizedTitle String      @unique
+  createdAt       DateTime    @default(now())
+  updatedAt       DateTime    @updatedAt
+
+  market          Market?
+  claimPapers     ClaimPaper[]
+  dossierJobs     DossierJob[]
+  alertSubs       AlertSubscription[]
+}
+
+model Market {
+  id              String       @id @default(uuid())
+  claimId          String       @unique
+  status           MarketStatus @default(RESEARCHING)
+
+  // Derived / denormalized (optional but useful)
+  yesShares        Int          @default(0)
+  noShares         Int          @default(0)
+  totalShares      Int          @default(0)
+
+  aiConfidence     Float?       // 0.0 - 1.0
+  consensusSummary String?      @db.Text
+  lastDossierAt    DateTime?
+  resolvedAt       DateTime?
+
+  claim            Claim        @relation(fields: [claimId], references: [id])
+  forecasts        Forecast[]
+}
+
+model Forecast {
+  id        String       @id @default(uuid())
+  marketId  String
+  userId    String
+  side      ForecastSide
+  shares    Int          @default(1)
+  createdAt DateTime     @default(now())
+
+  market    Market       @relation(fields: [marketId], references: [id])
+  user      User         @relation(fields: [userId], references: [id])
+
+  @@index([marketId, createdAt])
+  @@unique([marketId, userId, side]) // optional: prevent duplicate “same-side” votes
+}
+
+model Paper {
+  id               String   @id @default(uuid())
+  doi              String?  @unique
+  pmid             String?  @unique
+  semanticScholarId String? @unique
+
+  title            String
+  abstract         String?  @db.Text
+  doiUrl           String?
+  publishedYear    Int?
+  journal          String?
+  createdAt        DateTime @default(now())
+
+  claimPapers      ClaimPaper[]
+  chunks           DocumentChunk[]
+}
+
+model ClaimPaper {
+  id               String   @id @default(uuid())
+  claimId          String
+  paperId          String
+
+  // Evidence Card fields
+  abstractSnippet  String? @db.Text
+  aiSummary        String? @db.Text
+  studyType        String?
+  sampleSize       Int?
+  pValue           Float?
+  stance           Stance?
+
+  // Auditability / iteration
+  extractionJson    Json?
+  extractionVersion String?
+  createdAt         DateTime @default(now())
+
+  claim            Claim    @relation(fields: [claimId], references: [id])
+  paper            Paper    @relation(fields: [paperId], references: [id])
+
+  @@unique([claimId, paperId])
+}
+
+model DocumentChunk {
+  id         String   @id @default(uuid())
+  paperId    String
+  content    String   @db.Text
+
+  // pgvector column is typically "Unsupported" in Prisma and queried via raw SQL
+  embedding  Unsupported("vector")?
+
+  tokenCount Int?
+  createdAt  DateTime @default(now())
+
+  paper      Paper    @relation(fields: [paperId], references: [id])
+
+  @@index([paperId])
+}
+
+model DossierJob {
+  id          String    @id @default(uuid())
+  claimId     String
+  status      JobStatus @default(QUEUED)
+
+  requestHash String?   @unique // idempotency key for same claim+params
+  progress    Int       @default(0)
+  error       String?   @db.Text
+
+  startedAt   DateTime?
+  finishedAt  DateTime?
+  createdAt   DateTime  @default(now())
+
+  claim       Claim     @relation(fields: [claimId], references: [id])
+
+  @@index([claimId, createdAt])
+}
+
+model AlertSubscription {
+  id        String   @id @default(uuid())
+  claimId   String
+  userId    String
+  isActive  Boolean  @default(true)
+  createdAt DateTime @default(now())
+
+  claim     Claim    @relation(fields: [claimId], references: [id])
+  user      User     @relation(fields: [userId], references: [id])
+
+  @@unique([claimId, userId])
+}
+
+model User {
+  id            String   @id @default(uuid())
+  email         String?  @unique
+  walletAddress String?  @unique
+
+  isPro         Boolean  @default(false)
+
+  // balances for MVP; add a ledger later for compliance/audit
+  goldBalance   Int      @default(0)
+  sweepsBalance Int      @default(0)
+
+  forecasts     Forecast[]
+}
+
+
+(Prisma relations reference: https://www.prisma.io/docs/orm/prisma-schema/data-model/relations
+)
+

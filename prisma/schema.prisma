@@ -1,0 +1,389 @@
+// Prisma Schema for HealthProof
+// Documentation: https://www.prisma.io/docs/orm/prisma-schema/data-model/relations
+
+generator client {
+  provider        = "prisma-client-js"
+  previewFeatures = ["postgresqlExtensions"]
+}
+
+datasource db {
+  provider   = "postgresql"
+  url        = env("DATABASE_URL")
+  extensions = [vector]
+}
+
+// ============================================================================
+// ENUMS
+// ============================================================================
+
+enum MarketStatus {
+  RESEARCHING // AI is gathering evidence
+  ACTIVE      // Open for voting
+  RESOLVED    // Truth revealed
+}
+
+enum Stance {
+  SUPPORTS
+  REFUTES
+  NEUTRAL
+}
+
+enum ForecastSide {
+  YES
+  NO
+}
+
+enum JobStatus {
+  QUEUED
+  RUNNING
+  SUCCEEDED
+  FAILED
+}
+
+enum ClaimDifficulty {
+  EASY   // +20 correct, -10 wrong
+  MEDIUM // +25 correct, -12 wrong
+  HARD   // +30 correct, -15 wrong
+}
+
+enum ReputationEventType {
+  CORRECT_PREDICTION
+  WRONG_PREDICTION
+  DAILY_BONUS
+  STREAK_BONUS
+  QUIZ_COMPLETE
+  REFERRAL_BONUS
+  ADMIN_ADJUSTMENT
+  OTHER
+}
+
+enum CreditEventType {
+  GUEST_INITIAL      // +4 on first visit
+  SIGNUP_BONUS       // +5 on registration
+  NEWSLETTER_BONUS   // +5 for subscribing
+  DAILY_LOGIN        // +10 daily
+  STREAK_BONUS       // +20 for 7-day streak (future)
+  VOTE_SPENT         // -1 per vote
+  REVEAL_SPENT       // -5 to skip timer
+  ADMIN_GRANT        // Admin adjustment
+  PURCHASE           // Future: bought credits
+}
+
+// ============================================================================
+// USER & AUTH
+// ============================================================================
+
+model User {
+  id            String    @id @default(cuid())
+  email         String?   @unique
+  emailVerified DateTime?
+  name          String?
+  image         String?
+  passwordHash  String?   // For credentials auth
+
+  // Gamification
+  credits           Int      @default(0)
+  reputation        Int      @default(0)
+  newsletterOptIn   Boolean  @default(false)
+  currentStreak     Int      @default(0)
+  longestStreak     Int      @default(0)
+  lastLoginDate     DateTime?
+
+  // Role
+  isAdmin       Boolean  @default(false)
+
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  // Relations
+  accounts          Account[]
+  sessions          Session[]
+  forecasts         Forecast[]
+  alertSubscriptions AlertSubscription[]
+  creditEvents      CreditEvent[]
+  reputationEvents  ReputationEvent[]
+  claimVotes        ClaimVote[]
+}
+
+model Account {
+  id                String  @id @default(cuid())
+  userId            String
+  type              String
+  provider          String
+  providerAccountId String
+  refresh_token     String? @db.Text
+  access_token      String? @db.Text
+  expires_at        Int?
+  token_type        String?
+  scope             String?
+  id_token          String? @db.Text
+  session_state     String?
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([provider, providerAccountId])
+}
+
+model Session {
+  id           String   @id @default(cuid())
+  sessionToken String   @unique
+  userId       String
+  expires      DateTime
+  user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model VerificationToken {
+  identifier String
+  token      String   @unique
+  expires    DateTime
+
+  @@unique([identifier, token])
+}
+
+// Guest session tracking (for non-logged-in users)
+model GuestSession {
+  id            String   @id @default(cuid())
+  sessionToken  String   @unique
+  credits       Int      @default(4)  // Starting credits for guests
+  createdAt     DateTime @default(now())
+  expiresAt     DateTime
+
+  guestVotes    GuestVote[]
+}
+
+// ============================================================================
+// CREDITS & REPUTATION
+// ============================================================================
+
+model CreditEvent {
+  id        String          @id @default(cuid())
+  userId    String
+  type      CreditEventType
+  amount    Int             // Positive or negative
+  note      String?
+  createdAt DateTime        @default(now())
+
+  user      User            @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, createdAt])
+}
+
+model ReputationEvent {
+  id          String              @id @default(cuid())
+  userId      String
+  type        ReputationEventType
+  points      Int                 // Positive or negative
+  claimId     String?             // Optional: related claim
+  metadata    Json?               // Flexible data for future mechanics
+  note        String?
+  createdAt   DateTime            @default(now())
+
+  user        User                @relation(fields: [userId], references: [id], onDelete: Cascade)
+  claim       Claim?              @relation(fields: [claimId], references: [id])
+
+  @@index([userId, createdAt])
+  @@index([claimId])
+}
+
+// ============================================================================
+// CLAIMS & MARKETS
+// ============================================================================
+
+model Claim {
+  id              String          @id @default(cuid())
+  title           String          // The health claim statement
+  normalizedTitle String          @unique // Lowercase, trimmed for deduplication
+  description     String?         @db.Text
+  difficulty      ClaimDifficulty @default(MEDIUM)
+  
+  // Timing
+  revealAt        DateTime?       // When AI verdict becomes free to view
+  createdAt       DateTime        @default(now())
+  updatedAt       DateTime        @updatedAt
+
+  // Relations
+  market          Market?
+  claimPapers     ClaimPaper[]
+  dossierJobs     DossierJob[]
+  alertSubs       AlertSubscription[]
+  reputationEvents ReputationEvent[]
+  claimVotes      ClaimVote[]
+  guestVotes      GuestVote[]
+}
+
+model Market {
+  id              String       @id @default(cuid())
+  claimId         String       @unique
+  status          MarketStatus @default(RESEARCHING)
+
+  // Denormalized vote counts for fast reads
+  yesVotes        Int          @default(0)
+  noVotes         Int          @default(0)
+  totalVotes      Int          @default(0)
+
+  // AI verdict
+  aiConfidence    Float?       // 0.0 - 1.0 (null until research complete)
+  aiVerdict       ForecastSide? // YES or NO
+  consensusSummary String?     @db.Text
+
+  lastDossierAt   DateTime?
+  resolvedAt      DateTime?
+  createdAt       DateTime     @default(now())
+  updatedAt       DateTime     @updatedAt
+
+  claim           Claim        @relation(fields: [claimId], references: [id], onDelete: Cascade)
+  forecasts       Forecast[]
+}
+
+// User votes on claims (registered users)
+model ClaimVote {
+  id        String       @id @default(cuid())
+  claimId   String
+  userId    String
+  side      ForecastSide
+  
+  // Timer for free reveal
+  votedAt   DateTime     @default(now())
+  revealAt  DateTime     // votedAt + 6 hours
+  revealed  Boolean      @default(false) // Whether user has seen the verdict
+
+  claim     Claim        @relation(fields: [claimId], references: [id], onDelete: Cascade)
+  user      User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([claimId, userId])
+  @@index([userId, revealAt])
+}
+
+// Guest votes on claims (non-logged-in users)
+model GuestVote {
+  id             String       @id @default(cuid())
+  claimId        String
+  guestSessionId String
+  side           ForecastSide
+  
+  votedAt        DateTime     @default(now())
+
+  claim          Claim        @relation(fields: [claimId], references: [id], onDelete: Cascade)
+  guestSession   GuestSession @relation(fields: [guestSessionId], references: [id], onDelete: Cascade)
+
+  @@unique([claimId, guestSessionId])
+}
+
+// Forecast with virtual currency (for future sweepstakes)
+model Forecast {
+  id        String       @id @default(cuid())
+  marketId  String
+  userId    String
+  side      ForecastSide
+  shares    Int          @default(1)
+  createdAt DateTime     @default(now())
+
+  market    Market       @relation(fields: [marketId], references: [id], onDelete: Cascade)
+  user      User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([marketId, createdAt])
+  @@unique([marketId, userId, side])
+}
+
+// ============================================================================
+// PAPERS & EVIDENCE
+// ============================================================================
+
+model Paper {
+  id                String   @id @default(cuid())
+  doi               String?  @unique
+  pmid              String?  @unique
+  pmcid             String?  @unique  // PubMed Central ID
+  arxivId           String?  @unique
+  semanticScholarId String?  @unique
+
+  title             String
+  abstract          String?  @db.Text
+  fullTextUrl       String?  // Link to open access PDF
+  publishedYear     Int?
+  journal           String?
+  authors           String[] // Array of author names
+  
+  createdAt         DateTime @default(now())
+
+  claimPapers       ClaimPaper[]
+  chunks            DocumentChunk[]
+}
+
+model ClaimPaper {
+  id                String   @id @default(cuid())
+  claimId           String
+  paperId           String
+
+  // Evidence Card fields (extracted by AI)
+  abstractSnippet   String?  @db.Text
+  aiSummary         String?  @db.Text
+  studyType         String?  // e.g., "RCT", "Meta-analysis", "Observational"
+  sampleSize        Int?
+  pValue            Float?
+  stance            Stance?
+  confidenceScore   Float?   // How confident AI is in this assessment
+
+  // Versioning for extraction iterations
+  extractionJson    Json?
+  extractionVersion String?
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+
+  claim             Claim    @relation(fields: [claimId], references: [id], onDelete: Cascade)
+  paper             Paper    @relation(fields: [paperId], references: [id], onDelete: Cascade)
+
+  @@unique([claimId, paperId])
+}
+
+model DocumentChunk {
+  id         String                   @id @default(cuid())
+  paperId    String
+  content    String                   @db.Text
+  chunkIndex Int                      // Order within the paper
+  
+  // pgvector embedding (1536 dimensions for text-embedding-3-small)
+  embedding  Unsupported("vector(1536)")?
+
+  tokenCount Int?
+  createdAt  DateTime                 @default(now())
+
+  paper      Paper                    @relation(fields: [paperId], references: [id], onDelete: Cascade)
+
+  @@index([paperId])
+}
+
+// ============================================================================
+// JOBS & ALERTS
+// ============================================================================
+
+model DossierJob {
+  id          String    @id @default(cuid())
+  claimId     String
+  status      JobStatus @default(QUEUED)
+
+  requestHash String?   @unique // Idempotency key
+  progress    Int       @default(0) // 0-100
+  error       String?   @db.Text
+
+  startedAt   DateTime?
+  finishedAt  DateTime?
+  createdAt   DateTime  @default(now())
+
+  claim       Claim     @relation(fields: [claimId], references: [id], onDelete: Cascade)
+
+  @@index([claimId, createdAt])
+}
+
+model AlertSubscription {
+  id        String   @id @default(cuid())
+  claimId   String
+  userId    String
+  isActive  Boolean  @default(true)
+  createdAt DateTime @default(now())
+
+  claim     Claim    @relation(fields: [claimId], references: [id], onDelete: Cascade)
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([claimId, userId])
+}
