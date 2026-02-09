@@ -54,22 +54,22 @@ export function getReputationPoints(
 }
 
 /**
- * Credit costs
+ * Credit costs (Phase 1)
  */
 export const CREDIT_COSTS = {
   VOTE: 1,
-  REVEAL_EARLY: 5,
+  DEEP_ANALYSIS_UNLOCK: 5, // Replaced "skip timer" - unlocks full research breakdown
 } as const;
 
 /**
- * Credit rewards
+ * Credit rewards (Phase 1 - Reduced to prevent inflation)
  */
 export const CREDIT_REWARDS = {
-  GUEST_INITIAL: 4,
-  SIGNUP_BONUS: 5,
-  NEWSLETTER_BONUS: 5,
-  DAILY_LOGIN: 10,
-  STREAK_7_DAYS: 20,
+  GUEST_INITIAL: 4,           // One-time: enough to vote on 4 claims
+  SIGNUP_BONUS: 5,            // One-time: meaningful bump
+  NEWSLETTER_BONUS: 5,        // One-time: optional bonus
+  DAILY_LOGIN: 2,             // REDUCED from 10 → 2 (will be conditional in Phase 2)
+  STREAK_7_DAYS: 10,          // REDUCED from 20 → 10 (future feature)
 } as const;
 
 /**

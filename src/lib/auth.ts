@@ -5,7 +5,7 @@ import GitHub from "next-auth/providers/github";
 import Credentials from "next-auth/providers/credentials";
 import bcrypt from "bcryptjs";
 import { prisma } from "@/lib/prisma";
-import { CREDIT_REWARDS } from "@/lib/utils";
+import { grantSignupBonus } from "@/lib/coin-service";
 
 export const { handlers, signIn, signOut, auth } = NextAuth({
   adapter: PrismaAdapter(prisma),
@@ -103,23 +103,9 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
   },
   events: {
     async createUser({ user }) {
-      // Grant signup bonus credits to new users
-      await prisma.$transaction([
-        prisma.user.update({
-          where: { id: user.id },
-          data: {
-            credits: { increment: CREDIT_REWARDS.SIGNUP_BONUS },
-          },
-        }),
-        prisma.creditEvent.create({
-          data: {
-            userId: user.id!,
-            type: "SIGNUP_BONUS",
-            amount: CREDIT_REWARDS.SIGNUP_BONUS,
-            note: "Welcome bonus credits",
-          },
-        }),
-      ]);
+      // Grant signup bonus credits using CoinService (auditable ledger)
+      // This is idempotent - won't double-credit if called multiple times
+      await grantSignupBonus(user.id!);
     },
   },
 });

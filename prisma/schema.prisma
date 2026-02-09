@@ -58,15 +58,32 @@ enum ReputationEventType {
 }
 
 enum CreditEventType {
-  GUEST_INITIAL      // +4 on first visit
-  SIGNUP_BONUS       // +5 on registration
-  NEWSLETTER_BONUS   // +5 for subscribing
-  DAILY_LOGIN        // +10 daily
-  STREAK_BONUS       // +20 for 7-day streak (future)
-  VOTE_SPENT         // -1 per vote
-  REVEAL_SPENT       // -5 to skip timer
-  ADMIN_GRANT        // Admin adjustment
-  PURCHASE           // Future: bought credits
+  // Earnings
+  GUEST_INITIAL             // +4 on first visit
+  SIGNUP_BONUS              // +5 on registration (Phase 1: reduced from previous)
+  NEWSLETTER_BONUS          // +5 for subscribing
+  DAILY_LOGIN               // +2 daily (Phase 1: reduced, will become conditional)
+  STREAK_BONUS              // Future: streak rewards
+  
+  // Spending
+  VOTE_SPENT                // -1 per vote
+  DEEP_ANALYSIS_UNLOCK      // Phase 1: replaced "skip timer"
+  CLAIM_PROPOSAL_DEPOSIT    // Phase 2: claim submission stake
+  BOUNTY_CONTRIBUTION       // Phase 2: boost claim priority
+  TOURNAMENT_ENTRY          // Phase 2: event entry
+  
+  // Payouts (Phase 2)
+  STAKE_PAYOUT              // Pool betting winnings
+  BOUNTY_PAYOUT             // Bounty distribution
+  TOURNAMENT_PRIZE          // Tournament winnings
+  EVIDENCE_REWARD           // Curated contribution reward
+  
+  // System
+  HOUSE_FEE_BURN            // Phase 2: betting fee burn
+  DEPOSIT_REFUND            // Phase 2: claim deposit returned
+  DEPOSIT_BURN              // Phase 2: claim deposit forfeited
+  ADMIN_GRANT               // Admin adjustment
+  PURCHASE                  // Future: real-money purchase
 }
 
 // ============================================================================
@@ -103,6 +120,7 @@ model User {
   creditEvents      CreditEvent[]
   reputationEvents  ReputationEvent[]
   claimVotes        ClaimVote[]
+  coinHolds         CoinHold[]
 }
 
 model Account {
@@ -160,12 +178,45 @@ model CreditEvent {
   userId    String
   type      CreditEventType
   amount    Int             // Positive or negative
+  
+  // Audit trail
+  refType   String?         // e.g., "claim", "market", "tournament"
+  refId     String?         // Related entity ID
+  
+  // Balance snapshot for reconciliation
+  balanceBefore Int?
+  balanceAfter  Int?
+  
+  // Metadata
   note      String?
+  metadata  Json?           // Flexible data (e.g., odds, difficulty)
+  
+  // Idempotency
+  idempotencyKey String?    @unique
+  
   createdAt DateTime        @default(now())
 
   user      User            @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@index([userId, createdAt])
+  @@index([refType, refId])
+  @@index([type, createdAt])
+}
+
+// Escrow for future pool betting (Phase 2)
+model CoinHold {
+  id        String   @id @default(cuid())
+  userId    String
+  marketId  String   // Related market
+  amount    Int      // Escrowed amount
+  status    String   @default("LOCKED") // LOCKED, RELEASED, FORFEITED
+  createdAt DateTime @default(now())
+  releasedAt DateTime?
+
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, status])
+  @@index([marketId, status])
 }
 
 model ReputationEvent {

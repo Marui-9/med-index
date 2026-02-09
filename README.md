@@ -111,8 +111,9 @@ prisma/
 ## Development Phases
 
 - [x] **Phase 0**: Project foundation
-- [ ] **Phase 1**: Research dashboard (AI paper analysis)
-- [ ] **Phase 2**: Social sentiment & forecasting
+- [x] **Phase 1 (Coin System)**: Auditable ledger, reduced rewards, improved sinks
+- [ ] **Phase 1 (Research)**: AI paper analysis & evidence dashboard
+- [ ] **Phase 2**: Social sentiment & forecasting with pool betting
 - [ ] **Phase 3**: Monetization & gating
 
 ## License
