@@ -1,7 +1,22 @@
+import type { Metadata } from "next";
 import Link from "next/link";
 import { auth } from "@/lib/auth";
 import { Header } from "@/components/header";
 import { Footer } from "@/components/footer";
+import { DailyLoginBanner } from "@/components/daily-login-banner";
+
+export const metadata: Metadata = {
+  title: "HealthProof - Verify Health & Fitness Claims with Science",
+  description:
+    "Vote on popular health and fitness claims. Our AI analyzes peer-reviewed research to reveal the scientific truth. Earn reputation by making correct predictions.",
+  alternates: { canonical: "/" },
+  openGraph: {
+    title: "HealthProof - Verify Health & Fitness Claims with Science",
+    description:
+      "Vote on popular health and fitness claims. Our AI analyzes peer-reviewed research to reveal the scientific truth.",
+    url: "/",
+  },
+};
 
 export default async function HomePage() {
   const session = await auth();
@@ -9,6 +24,7 @@ export default async function HomePage() {
   return (
     <div className="flex min-h-screen flex-col">
       <Header />
+      <DailyLoginBanner />
 
       {/* Hero Section */}
       <main className="flex-1">

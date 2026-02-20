@@ -6,6 +6,8 @@ const nextConfig: NextConfig = {
       bodySizeLimit: "2mb",
     },
   },
+  // Standalone output for Docker / Railway deployments
+  output: "standalone",
   images: {
     remotePatterns: [
       {

@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { UserMenu } from "@/components/user-menu";
+import { CoinBalance } from "@/components/coin-balance";
 
 export function Header() {
   return (
@@ -15,6 +16,7 @@ export function Header() {
           >
             Browse Claims
           </Link>
+          <CoinBalance />
           <UserMenu />
         </nav>
       </div>

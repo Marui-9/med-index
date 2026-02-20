@@ -11,6 +11,7 @@
     "db:push": "prisma db push",
     "db:migrate": "prisma migrate dev",
     "db:studio": "prisma studio",
+    "db:seed": "tsx prisma/seed.ts",
     "worker": "tsx src/workers/dossier-worker.ts",
     "test": "vitest run",
     "test:watch": "vitest"

@@ -1,8 +1,9 @@
-import { NextResponse } from "next/server";
+import { NextRequest, NextResponse } from "next/server";
 import bcrypt from "bcryptjs";
 import { z } from "zod";
 import { prisma } from "@/lib/prisma";
 import { grantSignupBonus, grantNewsletterBonus } from "@/lib/coin-service";
+import { authLimiter } from "@/lib/rate-limit";
 
 const signupSchema = z.object({
   name: z.string().min(1, "Name is required").max(100),
@@ -11,7 +12,9 @@ const signupSchema = z.object({
   newsletter: z.boolean().optional().default(false),
 });
 
-export async function POST(request: Request) {
+export async function POST(request: NextRequest) {
+  const limited = authLimiter.check(request);
+  if (limited) return limited;
   try {
     const body = await request.json();
     const validated = signupSchema.safeParse(body);

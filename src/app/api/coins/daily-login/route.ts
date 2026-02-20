@@ -2,15 +2,19 @@ import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
 import { grantDailyLogin } from "@/lib/coin-service";
 import { prisma } from "@/lib/prisma";
+import { actionLimiter } from "@/lib/rate-limit";
 
 /**
  * POST /api/coins/daily-login
- * 
+ *
  * Claim daily login bonus (Phase 1: 2 coins)
  * - Idempotent (one claim per day)
  * - Updates lastLoginDate for streak tracking (future)
  */
 export async function POST(request: NextRequest) {
+  const limited = actionLimiter.check(request);
+  if (limited) return limited;
+
   try {
     const session = await auth();
 

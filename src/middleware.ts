@@ -36,7 +36,27 @@ export default auth((req) => {
     // since we can't access full user data in middleware
   }
 
-  return NextResponse.next();
+  // ── Security headers ──────────────────────────────────────────────────
+  const response = NextResponse.next();
+  const headers = response.headers;
+
+  headers.set("X-Frame-Options", "DENY");
+  headers.set("X-Content-Type-Options", "nosniff");
+  headers.set("Referrer-Policy", "strict-origin-when-cross-origin");
+  headers.set(
+    "Permissions-Policy",
+    "camera=(), microphone=(), geolocation=()",
+  );
+  headers.set(
+    "Strict-Transport-Security",
+    "max-age=63072000; includeSubDomains; preload",
+  );
+  headers.set(
+    "Content-Security-Policy",
+    "default-src 'self'; script-src 'self' 'unsafe-inline' 'unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; font-src 'self' data:; connect-src 'self' https:; frame-ancestors 'none';",
+  );
+
+  return response;
 });
 
 export const config = {
