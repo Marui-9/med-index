@@ -1,61 +1,14 @@
 import Link from "next/link";
 import { auth } from "@/lib/auth";
+import { Header } from "@/components/header";
+import { Footer } from "@/components/footer";
 
 export default async function HomePage() {
   const session = await auth();
 
   return (
     <div className="flex min-h-screen flex-col">
-      {/* Header */}
-      <header className="border-b">
-        <div className="container mx-auto flex h-16 items-center justify-between px-4">
-          <Link href="/" className="text-xl font-bold text-primary">
-            HealthProof
-          </Link>
-          <nav className="flex items-center gap-4">
-            <Link
-              href="/claims"
-              className="text-sm text-muted-foreground hover:text-foreground"
-            >
-              Browse Claims
-            </Link>
-            {session?.user ? (
-              <div className="flex items-center gap-4">
-                <div className="flex items-center gap-2 text-sm">
-                  <span className="font-medium">
-                    {session.user.credits} credits
-                  </span>
-                  <span className="text-muted-foreground">•</span>
-                  <span className="text-muted-foreground">
-                    {session.user.reputation} rep
-                  </span>
-                </div>
-                <Link
-                  href="/dashboard"
-                  className="rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground hover:bg-primary/90"
-                >
-                  Dashboard
-                </Link>
-              </div>
-            ) : (
-              <div className="flex items-center gap-2">
-                <Link
-                  href="/auth/signin"
-                  className="text-sm text-muted-foreground hover:text-foreground"
-                >
-                  Sign In
-                </Link>
-                <Link
-                  href="/auth/signup"
-                  className="rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground hover:bg-primary/90"
-                >
-                  Sign Up
-                </Link>
-              </div>
-            )}
-          </nav>
-        </div>
-      </header>
+      <Header />
 
       {/* Hero Section */}
       <main className="flex-1">
@@ -142,20 +95,7 @@ export default async function HomePage() {
         </section>
       </main>
 
-      {/* Footer */}
-      <footer className="border-t">
-        <div className="container mx-auto flex h-16 items-center justify-between px-4 text-sm text-muted-foreground">
-          <p>© 2026 HealthProof. All rights reserved.</p>
-          <div className="flex gap-4">
-            <Link href="/privacy" className="hover:text-foreground">
-              Privacy
-            </Link>
-            <Link href="/terms" className="hover:text-foreground">
-              Terms
-            </Link>
-          </div>
-        </div>
-      </footer>
+      <Footer />
     </div>
   );
 }

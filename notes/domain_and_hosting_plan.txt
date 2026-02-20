@@ -1,0 +1,235 @@
+DOMAIN & HOSTING PLAN
+=====================
+Budget: ~$20-30/month
+Stack: Next.js 15 + PostgreSQL (pgvector) + Redis (BullMQ) + worker process
+Target: Railway Pro (fits the stack perfectly — native Procfile support, managed Postgres + Redis)
+
+================================================================================
+PART 1: DOMAIN REGISTRATION
+================================================================================
+
+Recommended registrar: Cloudflare Registrar
+  - At-cost pricing (no markup on renewals — typically $9-10/yr for .com)
+  - Free DNS, DDoS protection, and CDN (Cloudflare proxy)
+  - No upselling, no hidden renewal price hikes
+
+Step-by-step:
+
+1. Go to https://dash.cloudflare.com/sign-up and create an account
+   - Use a strong password + enable 2FA (TOTP or hardware key)
+
+2. Search for your domain
+   - Go to "Domain Registration" > "Register Domains" in the left sidebar
+   - Enter your chosen domain name and check availability
+   - If taken, try variations: .co, .app, .fit, .health, or add a prefix/suffix
+
+3. Purchase the domain
+   - Add to cart, proceed to checkout
+   - Fill in WHOIS contact info (Cloudflare redacts it for privacy by default)
+   - Pay with card or PayPal
+   - Cost: ~$9-10/yr for .com, ~$5-15/yr for alternatives
+
+4. After purchase, the domain is automatically managed by Cloudflare DNS
+   - No need to change nameservers (already on Cloudflare)
+   - You'll configure DNS records later when Railway gives you a CNAME target
+
+Alternative registrars (if Cloudflare doesn't have the TLD you want):
+  - Namecheap: https://www.namecheap.com — good UI, frequent promos
+  - Porkbun:   https://porkbun.com — cheap, no-nonsense
+  If using these, you'd transfer DNS management to Cloudflare afterwards for
+  free CDN/proxy benefits (add site to Cloudflare > change nameservers at registrar).
+
+================================================================================
+PART 2: HOSTING SETUP (RAILWAY)
+================================================================================
+
+Why Railway:
+  - Native support for Procfile (you already have one: web + worker)
+  - One-click PostgreSQL and Redis add-ons
+  - Auto-deploys from GitHub push
+  - Pro plan is $20/mo base + usage (well within budget)
+  - Handles pgvector via their Postgres offering
+
+Step-by-step:
+
+1. Create a Railway account
+   - Go to https://railway.app and sign up with GitHub
+   - This links your GitHub repos for auto-deploy
+
+2. Upgrade to Pro plan ($20/mo)
+   - Go to Settings > Billing
+   - Add payment method and switch to Pro
+   - Pro gives you: higher resource limits, no sleep after 500hrs, custom domains
+
+3. Create a new project
+   - Click "New Project" on the dashboard
+   - Choose "Deploy from GitHub repo"
+   - Select your med-index repository (https://github.com/Marui-9/med-index.git)
+   - Railway will detect the Procfile and create a "web" service automatically
+
+4. Add PostgreSQL
+   - Inside your project, click "New" > "Database" > "PostgreSQL"
+   - Railway provisions a Postgres instance and auto-injects DATABASE_URL
+   - IMPORTANT: pgvector extension — after Postgres is provisioned:
+     a. Go to the Postgres service > "Data" tab > SQL editor (or connect via psql)
+     b. Run: CREATE EXTENSION IF NOT EXISTS vector;
+     c. Then run your migrations: railway run npx prisma migrate deploy
+
+5. Add Redis
+   - Inside your project, click "New" > "Database" > "Redis"
+   - Railway auto-injects REDIS_URL into your services
+
+6. Configure environment variables
+   - Click on your web service > "Variables" tab
+   - Railway auto-sets DATABASE_URL and REDIS_URL from the attached databases
+   - Manually add these:
+
+     AUTH_SECRET=<generate with: openssl rand -base64 32>
+     NEXTAUTH_URL=https://your-domain.com
+     OPENAI_API_KEY=<your OpenAI key>
+     GOOGLE_CLIENT_ID=<from Google Cloud Console>
+     GOOGLE_CLIENT_SECRET=<from Google Cloud Console>
+     GITHUB_CLIENT_ID=<from GitHub Developer Settings>
+     GITHUB_CLIENT_SECRET=<from GitHub Developer Settings>
+     NCBI_API_KEY=<optional, from NCBI account settings>
+     NODE_ENV=production
+
+   - The worker service needs the same DATABASE_URL + REDIS_URL
+     (shared variables: set them at the project level, or copy to both services)
+
+7. Set up the worker service
+   - Railway should detect both Procfile entries (web + worker)
+   - If it doesn't, manually create a second service:
+     a. "New" > "GitHub Repo" > same repo
+     b. Settings > change Start Command to: npm run worker
+   - Make sure the worker has access to the same DATABASE_URL and REDIS_URL
+
+8. Run initial database migration
+   - In the Railway CLI or via the service shell:
+     railway run npx prisma migrate deploy
+   - Or: add a build command in Railway service settings:
+     Build Command: npm run build && npx prisma migrate deploy
+
+================================================================================
+PART 3: CONNECT DOMAIN TO RAILWAY
+================================================================================
+
+1. Get your Railway CNAME target
+   - In your web service > Settings > "Custom Domain"
+   - Click "Add Custom Domain"
+   - Enter your domain (e.g., yourdomain.com)
+   - Railway shows a CNAME target (something like: web-production-XXXX.up.railway.app)
+
+2. Add DNS records in Cloudflare
+   - Go to https://dash.cloudflare.com > your domain > DNS > Records
+   - Add:
+     Type: CNAME
+     Name: @ (root domain)
+     Target: <Railway CNAME target>
+     Proxy status: Proxied (orange cloud ON — gives you Cloudflare CDN + DDoS protection)
+
+   - Also add www redirect:
+     Type: CNAME
+     Name: www
+     Target: <Railway CNAME target>
+     Proxy status: Proxied
+
+3. SSL/TLS settings in Cloudflare
+   - Go to SSL/TLS > Overview
+   - Set encryption mode to "Full (strict)"
+   - Railway provides its own SSL cert; Cloudflare provides edge SSL
+   - "Full (strict)" ensures end-to-end encryption
+
+4. Verify in Railway
+   - Go back to Railway > Custom Domain
+   - It should show "Valid" or "Active" within a few minutes
+   - Railway will auto-provision an SSL certificate on their end
+
+5. Update NEXTAUTH_URL
+   - Change NEXTAUTH_URL in Railway environment variables to:
+     https://yourdomain.com
+
+================================================================================
+PART 4: OAUTH CALLBACK URLS
+================================================================================
+
+After your domain is live, update OAuth redirect URIs:
+
+Google OAuth:
+  1. Go to https://console.cloud.google.com/apis/credentials
+  2. Edit your OAuth 2.0 Client
+  3. Add Authorized redirect URI:
+     https://yourdomain.com/api/auth/callback/google
+  4. Add Authorized JavaScript origin:
+     https://yourdomain.com
+
+GitHub OAuth:
+  1. Go to https://github.com/settings/developers
+  2. Edit your OAuth App
+  3. Set Homepage URL: https://yourdomain.com
+  4. Set Authorization callback URL:
+     https://yourdomain.com/api/auth/callback/github
+
+================================================================================
+PART 5: PRE-LAUNCH CHECKS
+================================================================================
+
+Before going live, verify:
+
+[ ] npm run build succeeds locally with no errors
+[ ] Database migrations run cleanly (npx prisma migrate deploy)
+[ ] pgvector extension is enabled in production Postgres
+[ ] All required env vars are set in Railway (AUTH_SECRET, OPENAI_API_KEY, etc.)
+[ ] OAuth callbacks point to production domain (not localhost)
+[ ] NEXTAUTH_URL matches your actual domain with https://
+[ ] Privacy policy page exists at /privacy (required by Google OAuth)
+[ ] Terms of service page exists at /terms
+[ ] Site loads on https://yourdomain.com with valid SSL
+[ ] Auth flow works end-to-end (sign up, sign in, sign out)
+[ ] Worker process is running (check Railway dashboard — should show 2 services)
+[ ] Cloudflare SSL mode is "Full (strict)"
+
+================================================================================
+PART 6: COST BREAKDOWN (ESTIMATED MONTHLY)
+================================================================================
+
+Domain:        ~$0.80/mo  ($9.77/yr for .com at Cloudflare)
+Cloudflare:    $0         (free plan — DNS, CDN, DDoS, proxy)
+Railway Pro:   $20/mo     (base subscription)
+  - Web:       ~$2-5/mo   (usage-based, light traffic)
+  - Worker:    ~$1-3/mo   (usage-based, mostly idle)
+  - Postgres:  ~$2-5/mo   (usage-based, small DB)
+  - Redis:     ~$1-3/mo   (usage-based, minimal)
+OpenAI API:    ~$1-5/mo   (depends on usage — embeddings are cheap)
+--------------------------------------------------------------
+Total:         ~$25-35/mo
+
+If you need to cut costs initially:
+  - Skip the worker service until you actually need background jobs
+  - Use Neon (free tier Postgres with pgvector) instead of Railway Postgres
+  - Use Upstash (free tier Redis with 10K commands/day) instead of Railway Redis
+  - This could bring it to ~$20-22/mo
+
+================================================================================
+PART 7: POST-LAUNCH
+================================================================================
+
+Once live:
+
+1. Set up monitoring
+   - Railway provides basic metrics (CPU, memory, request count)
+   - Add Sentry (free tier) for error tracking: https://sentry.io
+   - Add Plausible or PostHog for privacy-friendly analytics
+
+2. Set up auto-deploy
+   - Railway auto-deploys on push to main by default
+   - Consider protecting main branch and deploying from a "production" branch
+
+3. Backups
+   - Railway Pro includes daily Postgres backups
+   - Verify this is enabled in your Postgres service settings
+
+4. Scaling (when needed)
+   - Railway scales vertically (more CPU/RAM per service) automatically
+   - For horizontal scaling, you'd add Railway replicas or move to a
+     container orchestration platform (much later)

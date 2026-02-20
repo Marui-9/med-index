@@ -108,6 +108,36 @@ prisma/
 - **UI**: Tailwind CSS, shadcn/ui
 - **Charts**: Recharts
 
+## Testing
+
+The project uses **Vitest** with **React Testing Library** for unit and component tests.
+
+```bash
+# Run all tests once
+npm test
+
+# Run tests in watch mode (re-runs on file changes)
+npm run test:watch
+```
+
+### Test Suites
+
+| Suite | Tests | Covers |
+|-------|-------|--------|
+| `api/auth/signup` | 8 | Zod validation, duplicate-email check, signup & newsletter bonuses, DB error handling |
+| `auth/signin` | 7 | Credentials form submission, OAuth button triggers, error display, loading states |
+| `auth/signup` | 7 | API call → auto sign-in flow, newsletter checkbox, duplicate errors, loading states |
+| `components/user-menu` | 8 | Authenticated/unauthenticated states, dropdown toggle, sign-out, outside-click close |
+
+**Total: 30 tests across 4 files**
+
+### Writing Tests
+
+- Test files live in `src/__tests__/` mirroring the source structure.
+- Component tests use `@testing-library/react` with a `jsdom` environment.
+- Global setup (`src/__tests__/setup.ts`) loads `@testing-library/jest-dom/vitest` matchers.
+- Config lives in `vitest.config.ts` (path alias `@/` is pre-configured).
+
 ## Development Phases
 
 - [x] **Phase 0**: Project foundation

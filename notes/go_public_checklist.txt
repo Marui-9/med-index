@@ -1,0 +1,72 @@
+Steps to go public (excluding domain & RAG)
+1. Wire up authentication (blocking — nothing works without it)
+Sign-in/sign-up pages have forms but zero event handlers — no signIn() calls, no form submissions
+Add SessionProvider wrapper in layout.tsx so client components can read session
+Wire OAuth buttons and credentials form to NextAuth
+Add sign-out functionality
+2. Build the Claims API + dynamic rendering
+GET /api/claims — list claims (with filters, pagination)
+GET /api/claims/[id] — single claim detail
+POST /api/claims — admin-only claim creation
+Replace the hardcoded claim cards in page.tsx with real data fetching
+For launch, you'd seed ~20-30 gym/fitness claims manually (e.g. "Creatine increases muscle mass", "Cold plunges improve recovery", "BCAAs are unnecessary if protein is adequate")
+3. Build voting flow (the core interaction)
+POST /api/claims/[id]/vote — place YES/NO vote, deduct 1 coin
+Vote state management: show buttons → submit → reveal results after 6h timer or coin unlock
+Guest voting (4 free credits, no account needed)
+Hidden percentages until after voting (already a design decision)
+4. Extract shared layout components
+Header/nav is copy-pasted across every page — make a single <Header /> component
+Mobile-responsive nav (burger menu)
+Footer component
+Coin balance display in header (already designed, needs session wiring)
+5. Add essential pages
+/about — linked from homepage, doesn't exist
+/privacy and /terms — required for OAuth providers (Google/GitHub mandate a privacy policy)
+/not-found (404) and error.tsx (500) — Next.js conventions
+loading.tsx skeletons for claims list and dashboard
+6. Seed data + admin tooling
+Prisma seed script with 20-30 fitness/gym claims, each with a verdict status
+Minimal admin page to add/edit/resolve claims (can be bare-bones, only you use it)
+Or: a CLI seed script + Prisma Studio for admin work at launch
+7. Daily login + coin economy frontend
+Button/banner to claim daily coins (endpoint exists, nothing calls it)
+Coin history page or panel (endpoint exists, no UI)
+Deep analysis unlock button on claim pages (endpoint exists, no UI)
+8. Environment + database setup for production
+Provision PostgreSQL with pgvector on Railway (or Supabase/Neon)
+Provision Redis on Railway (or Upstash)
+Set all env vars: DATABASE_URL, REDIS_URL, AUTH_SECRET, NEXTAUTH_URL, OAuth keys
+Run npx prisma migrate deploy in production
+OpenAI key (needed for moderation even without RAG)
+9. Security hardening
+Rate limiting on API routes (especially auth, voting, daily-login)
+Zod validation on all API inputs (Zod is installed, not used)
+CSRF is handled by Auth.js already
+Sanitize any user-generated content
+10. SEO + fitness niche positioning
+Per-page metadata (title/description for claims, trend pages)
+robots.txt and sitemap.xml (Next.js has built-in support)
+Open Graph tags for social sharing ("Is creatine worth it? 73% say yes")
+Rename/rebrand from "HealthProof" to something gym/fitness-focused if desired
+11. Deploy
+Railway already has a Procfile configured (web + worker)
+npm run build must succeed cleanly
+Set NEXTAUTH_URL to your production URL
+Configure OAuth redirect URIs in Google/GitHub console
+12. Nice-to-haves before launch (optional but impactful)
+Toast notifications (dependency installed, no component)
+Dark mode toggle (CSS vars defined, no mechanism)
+Leaderboard page (mentioned on landing page)
+Newsletter signup (endpoint needed + email provider integration like Resend)
+Basic analytics (Plausible, PostHog, or Vercel Analytics)
+Suggested build order for fastest path to public
+Priority	Task	Why
+P0	Auth wiring (#1)	Everything depends on it
+P0	Claims API + seed data (#2, #6)	Core content
+P0	Voting flow (#3)	Core interaction — the reason users visit
+P1	Shared layout + missing pages (#4, #5)	Polish + legal (privacy/terms)
+P1	Production infra (#8)	Can't deploy without it
+P1	Coin economy frontend (#7)	Retention mechanic
+P2	Security + SEO (#9, #10)	Important but can iterate
+P2	Deploy (#11)	Once the above works locally

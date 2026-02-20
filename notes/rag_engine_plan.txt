@@ -1,0 +1,623 @@
+RAG ENGINE IMPLEMENTATION PLAN
+===============================
+Goal: Given a health/fitness claim, automatically retrieve relevant research
+papers, extract evidence, and synthesize an AI verdict with citations.
+
+Stack: OpenAI gpt-4o-mini (synthesis) + text-embedding-3-small (embeddings)
+       PubMed + arXiv + Semantic Scholar (paper sources)
+       pgvector on PostgreSQL (vector store)
+       BullMQ worker (background processing)
+
+================================================================================
+CURRENT STATE — WHAT EXISTS VS WHAT'S PLACEHOLDER
+================================================================================
+
+WORKING (can use as-is):
+  - src/lib/openai.ts
+    * generateEmbedding() — text-embedding-3-small, returns 1536-dim vector ✅
+    * generateEmbeddings() — batch embeddings ✅
+    * moderateContent() — OpenAI moderation ✅
+
+  - src/lib/pubmed.ts
+    * searchPubMed() — returns list of PubMed IDs ✅
+    * searchPMC() — searches PubMed Central (open access) ✅
+    * getPMCIdFromPMID() — links PubMed → PMC for full text ✅
+
+  - src/lib/arxiv.ts
+    * searchArxiv() — search with category filtering ✅
+    * searchArxivHealth() — pre-configured health categories ✅
+    * parseArxivResponse() — regex-based XML parsing (works but fragile) ✅
+
+  - src/lib/queue.ts — BullMQ queues for dossier generation ✅
+  - src/lib/redis.ts — Redis connection ✅
+
+  - prisma/schema.prisma — all needed models exist:
+    * Paper (doi, pmid, pmcid, arxivId, semanticScholarId, title, abstract, etc.)
+    * ClaimPaper (evidence card: aiSummary, studyType, sampleSize, pValue, stance)
+    * DocumentChunk (content, chunkIndex, embedding vector(1536))
+    * DossierJob (status tracking with progress)
+
+BROKEN / PLACEHOLDER:
+  - src/lib/pubmed.ts → fetchPubMedArticles()
+    * Fetches XML from PubMed but returns DUMMY DATA
+    * Comment says "TODO: Implement full XML parsing in Phase 1"
+    * Needs: proper XML parser (fast-xml-parser) to extract title, abstract,
+      authors, journal, year, DOI from PubMed efetch XML format
+
+  - src/workers/dossier-worker.ts
+    * Has the BullMQ worker skeleton with progress tracking ✅
+    * Steps 2-7 are ALL TODO placeholders:
+      Step 2: Search PubMed ← needs to call searchPubMed + fetchPubMedArticles
+      Step 3: Search arXiv ← needs to call searchArxivHealth
+      Step 4: Deduplicate & store papers ← needs implementation
+      Step 5: Generate embeddings ← needs chunking + generateEmbeddings
+      Step 6: Extract evidence ← needs LLM calls (the core RAG step)
+      Step 7: Generate synthesis ← needs LLM calls (verdict generation)
+
+DOES NOT EXIST YET:
+  - Semantic Scholar API client (new file needed)
+  - Text chunking utility (split papers into ~500-token chunks)
+  - pgvector similarity search (raw SQL query for cosine distance)
+  - LLM prompt templates for evidence extraction and synthesis
+  - API endpoint to trigger dossier generation
+  - API endpoint to fetch dossier results / evidence cards
+  - Frontend to display the AI verdict and evidence cards
+
+================================================================================
+IMPLEMENTATION PLAN — 8 STEPS
+================================================================================
+
+STEP 1: Install missing dependencies
+--------------------------------------
+npm install fast-xml-parser    # PubMed XML parsing (replaces placeholder)
+npm install pdf-parse           # PDF text extraction (for PMC full-text)
+npm install @ai-sdk/openai ai  # Vercel AI SDK (optional, nice streaming)
+
+fast-xml-parser: parse PubMed efetch XML → structured article data
+pdf-parse: extract text from open-access PDFs (PMC, arXiv)
+  NOTE: pdf-parse works server-side only. If a paper has no abstract, this lets
+  us try fetching the PDF and extracting text from it.
+
+================================================================================
+
+STEP 2: Fix PubMed article fetching (replace placeholder)
+-----------------------------------------------------------
+File: src/lib/pubmed.ts → fetchPubMedArticles()
+
+Current state: returns dummy data with "Article {pmid}" as title.
+
+What to do:
+  1. Import fast-xml-parser: XMLParser
+  2. Parse the efetch XML response using the parser
+  3. Extract from each <PubmedArticle>:
+     - PMID: MedlineCitation > PMID
+     - Title: MedlineCitation > Article > ArticleTitle
+     - Abstract: MedlineCitation > Article > Abstract > AbstractText
+       (note: structured abstracts have multiple AbstractText elements
+        with Label attributes like "BACKGROUND", "METHODS", "RESULTS",
+        "CONCLUSIONS" — concatenate them all)
+     - Authors: MedlineCitation > Article > AuthorList > Author
+       (combine LastName + ForeName)
+     - Journal: MedlineCitation > Article > Journal > Title
+     - Year: MedlineCitation > Article > Journal > JournalIssue > PubDate > Year
+     - DOI: PubmedData > ArticleIdList > ArticleId[IdType="doi"]
+  4. For each article, also check for PMC ID to get full-text URL
+
+  Pseudocode:
+    const parser = new XMLParser({ ignoreAttributes: false });
+    const parsed = parser.parse(xmlText);
+    const articles = parsed.PubmedArticleSet?.PubmedArticle ?? [];
+    // handle single article (not array) case
+    const articleList = Array.isArray(articles) ? articles : [articles];
+    return articleList.map(article => {
+      const medline = article.MedlineCitation;
+      const pubmedData = article.PubmedData;
+      // ... extract fields
+    });
+
+================================================================================
+
+STEP 3: Add Semantic Scholar API client (new file)
+----------------------------------------------------
+Create: src/lib/semantic-scholar.ts
+
+Semantic Scholar is free, no API key required (but rate-limited to 100 req/5min).
+An API key raises it to 1 req/sec sustained. Get one at:
+  https://www.semanticscholar.org/product/api#api-key
+
+Key endpoints:
+  Base URL: https://api.semanticscholar.org/graph/v1
+
+  1. Paper search:
+     GET /paper/search?query={query}&limit=20&fields=title,abstract,authors,
+         year,externalIds,citationCount,journal,publicationTypes,tldr
+     Returns papers with rich metadata + TLDR summaries.
+
+  2. Paper details (by DOI, PMID, arXiv ID):
+     GET /paper/DOI:{doi}?fields=...
+     GET /paper/PMID:{pmid}?fields=...
+     GET /paper/ARXIV:{arxivId}?fields=...
+     Useful for deduplication: fetch by DOI to check if we already have it.
+
+  3. Paper recommendations:
+     GET /recommendations/v1/papers/forpaper/{paper_id}?limit=10&fields=...
+     Given a relevant paper, find more like it (great for expanding coverage).
+
+  Why Semantic Scholar is valuable for fitness claims:
+    - Aggregates PubMed, arXiv, and many other sources in one API
+    - Provides pre-computed TLDR summaries (saves LLM tokens)
+    - Has citation counts (useful for ranking evidence quality)
+    - publicationTypes field tells you if it's a "Review", "ClinicalTrial", etc.
+    - Covers sports science, nutrition, exercise physiology papers
+
+  Interface:
+    export interface SemanticScholarPaper {
+      paperId: string;
+      externalIds: { DOI?: string; PubMed?: string; ArXiv?: string };
+      title: string;
+      abstract: string | null;
+      tldr: { text: string } | null;
+      authors: { name: string }[];
+      year: number;
+      citationCount: number;
+      journal: { name: string } | null;
+      publicationTypes: string[] | null; // "Review", "ClinicalTrial", etc
+    }
+
+  Functions to implement:
+    - searchSemanticScholar(query, limit) → SemanticScholarPaper[]
+    - getSemanticScholarPaper(externalId) → paper details
+    - getRecommendations(paperId, limit) → similar papers
+
+  Rate limiting:
+    - Add a simple delay between requests (100ms without key, 1s bursts ok with key)
+    - Or use p-queue / p-throttle to enforce rate limits
+
+================================================================================
+
+STEP 4: Build text chunking utility
+-------------------------------------
+Create: src/lib/chunker.ts
+
+Purpose: Split paper text (abstract or full-text) into chunks that fit the
+embedding model's context window while preserving semantic meaning.
+
+Parameters:
+  - chunkSize: ~500 tokens (~2000 chars) — sweet spot for text-embedding-3-small
+  - overlap: ~100 tokens (~400 chars) — ensures no context is lost at boundaries
+  - separator priority: paragraph break > sentence break > word break
+
+Algorithm:
+  1. Clean the text (remove excessive whitespace, normalize newlines)
+  2. Split into paragraphs
+  3. For each paragraph:
+     - If it fits in a chunk, add to current chunk
+     - If it would overflow, finalize current chunk and start new one
+     - If a single paragraph exceeds chunkSize, split by sentences
+  4. Apply overlap: each chunk includes the last N tokens of the previous chunk
+  5. Return array of { content: string, chunkIndex: number, tokenCount: number }
+
+Token counting:
+  - Use tiktoken (npm install tiktoken) for exact counts, OR
+  - Approximate: chars / 4 ≈ tokens (good enough for chunking)
+  - tiktoken is more reliable but adds ~4MB to bundle
+
+For the MVP, approximation is fine. Exact token counting matters more when
+optimizing costs at scale.
+
+  export function chunkText(text: string, options?: {
+    maxChunkTokens?: number;  // default 500
+    overlapTokens?: number;    // default 100
+  }): { content: string; chunkIndex: number; estimatedTokens: number }[]
+
+================================================================================
+
+STEP 5: Implement pgvector similarity search
+----------------------------------------------
+File: src/lib/vector-search.ts (new file)
+
+Prisma doesn't natively support pgvector operations, so we need raw SQL.
+
+Key function — find chunks most similar to a query:
+
+  export async function searchSimilarChunks(
+    queryEmbedding: number[],
+    options: {
+      limit?: number;        // default 10
+      minSimilarity?: number; // default 0.7 (cosine similarity threshold)
+      paperIds?: string[];    // optional: restrict to specific papers
+    }
+  ): Promise<{ id: string; paperId: string; content: string; similarity: number }[]>
+
+  Implementation using Prisma.$queryRawUnsafe:
+
+    const vectorStr = `[${queryEmbedding.join(",")}]`;
+
+    const results = await prisma.$queryRawUnsafe(`
+      SELECT
+        id,
+        "paperId",
+        content,
+        1 - (embedding <=> $1::vector) AS similarity
+      FROM "DocumentChunk"
+      WHERE embedding IS NOT NULL
+        ${paperIds ? `AND "paperId" = ANY($2::text[])` : ""}
+      ORDER BY embedding <=> $1::vector
+      LIMIT $${paperIds ? "3" : "2"}
+    `, vectorStr, limit, ...(paperIds ? [paperIds] : []));
+
+  The <=> operator is cosine distance in pgvector.
+  1 - distance = similarity (1.0 = identical, 0.0 = orthogonal).
+
+  Also create an index for fast vector search (add to a Prisma migration):
+
+    CREATE INDEX idx_document_chunk_embedding
+    ON "DocumentChunk"
+    USING ivfflat (embedding vector_cosine_ops)
+    WITH (lists = 100);
+
+    NOTE: ivfflat index requires at least a few hundred rows to be useful.
+    For small datasets (<1000 chunks), a sequential scan is fine.
+    Switch to HNSW index for better recall at scale:
+
+    CREATE INDEX idx_document_chunk_embedding_hnsw
+    ON "DocumentChunk"
+    USING hnsw (embedding vector_cosine_ops);
+
+================================================================================
+
+STEP 6: Build prompt templates for evidence extraction
+-------------------------------------------------------
+Create: src/lib/prompts.ts
+
+Two main prompts needed:
+
+PROMPT A — Evidence Extraction (per paper, per claim):
+  Given a claim and a paper's abstract/full-text, extract structured evidence.
+
+  System prompt (draft):
+    """
+    You are a scientific evidence analyst specializing in exercise science,
+    nutrition, and fitness research. Given a health/fitness claim and a
+    research paper, extract structured evidence.
+
+    Respond in JSON format:
+    {
+      "stance": "SUPPORTS" | "CONTRADICTS" | "NEUTRAL" | "INSUFFICIENT",
+      "confidence": 0.0-1.0,
+      "summary": "2-3 sentence summary of what this paper found",
+      "studyType": "RCT" | "Meta-analysis" | "Systematic review" |
+                   "Cohort" | "Case-control" | "Cross-sectional" |
+                   "Animal study" | "In vitro" | "Expert opinion",
+      "sampleSize": number or null,
+      "population": "e.g., trained males, elderly women, sedentary adults",
+      "duration": "e.g., 8 weeks, 12 months",
+      "effectSize": "e.g., +3.2 kg lean mass, -2.1% body fat",
+      "keyFindings": ["finding 1", "finding 2"],
+      "limitations": ["limitation 1", "limitation 2"],
+      "relevanceScore": 0.0-1.0  // how directly relevant to the claim
+    }
+    """
+
+  User prompt:
+    """
+    Claim: "{claim.title}"
+    Description: "{claim.description}"
+
+    Paper title: "{paper.title}"
+    Paper abstract: "{paper.abstract}"
+    {if fullTextChunks: "Relevant excerpts:\n" + chunks.join("\n---\n")}
+
+    Extract structured evidence from this paper regarding the claim.
+    """
+
+  Use gpt-4o-mini with response_format: { type: "json_object" }
+  Cost: ~$0.00015 per paper extraction (150 input tokens + 200 output tokens)
+
+PROMPT B — Verdict Synthesis (all evidence → final verdict):
+  Given a claim and all extracted evidence cards, produce an overall verdict.
+
+  System prompt (draft):
+    """
+    You are a systematic review analyst for fitness and health claims.
+    Given a claim and evidence extracted from multiple research papers,
+    synthesize an overall verdict.
+
+    Consider:
+    - Study quality hierarchy: meta-analyses > RCTs > cohort > case studies
+    - Sample sizes and statistical significance
+    - Consistency across studies
+    - Recency of evidence
+    - Population relevance to general fitness enthusiasts
+
+    Respond in JSON format:
+    {
+      "verdict": "SUPPORTED" | "MIXED" | "INSUFFICIENT" | "CONTRADICTED",
+      "confidence": 0.0-1.0,
+      "effectDirection": "POSITIVE" | "NEGATIVE" | "NEUTRAL" | "VARIABLE",
+      "shortSummary": "1 sentence bottom-line verdict",
+      "detailedSummary": "2-3 paragraph synthesis of the evidence",
+      "strengthOfEvidence": "STRONG" | "MODERATE" | "WEAK" | "VERY_WEAK",
+      "keyFactors": ["what drives this verdict"],
+      "caveats": ["important limitations / caveats"],
+      "whatWouldChangeVerdict": "what new evidence could flip this",
+      "recommendedAction": "practical takeaway for a fitness enthusiast"
+    }
+    """
+
+  User prompt:
+    """
+    Claim: "{claim.title}"
+
+    Evidence from {n} papers:
+
+    Paper 1: {paper.title} ({paper.publishedYear})
+    - Study type: {evidence.studyType}
+    - Sample size: {evidence.sampleSize}
+    - Stance: {evidence.stance}
+    - Summary: {evidence.summary}
+    - Key findings: {evidence.keyFindings}
+
+    ... (repeat for each paper)
+
+    Synthesize an overall verdict.
+    """
+
+  Use gpt-4o-mini with response_format: { type: "json_object" }
+  Cost: ~$0.001-0.003 per synthesis (depending on number of papers)
+
+================================================================================
+
+STEP 7: Implement the dossier worker (the core RAG pipeline)
+--------------------------------------------------------------
+File: src/workers/dossier-worker.ts (replace placeholder steps)
+
+The full pipeline for a single claim:
+
+  ┌─────────────────────────────────────────────────────────────┐
+  │ 1. Load claim from DB                                       │  10%
+  ├─────────────────────────────────────────────────────────────┤
+  │ 2. Build search queries (expand claim into search terms)    │  15%
+  ├─────────────────────────────────────────────────────────────┤
+  │ 3. Search PubMed + arXiv + Semantic Scholar in parallel     │  25%
+  ├─────────────────────────────────────────────────────────────┤
+  │ 4. Deduplicate papers (by DOI, PMID, title similarity)     │  30%
+  ├─────────────────────────────────────────────────────────────┤
+  │ 5. Store papers in DB (upsert by DOI/PMID/arXivId)         │  35%
+  ├─────────────────────────────────────────────────────────────┤
+  │ 6. For each paper: chunk text + generate embeddings         │  55%
+  ├─────────────────────────────────────────────────────────────┤
+  │ 7. Vector search: find most relevant chunks per claim       │  60%
+  ├─────────────────────────────────────────────────────────────┤
+  │ 8. For each paper: extract evidence (LLM call)              │  80%
+  ├─────────────────────────────────────────────────────────────┤
+  │ 9. Generate verdict synthesis (LLM call)                    │  95%
+  ├─────────────────────────────────────────────────────────────┤
+  │ 10. Save verdict + evidence cards + update market           │ 100%
+  └─────────────────────────────────────────────────────────────┘
+
+  Detailed breakdown of each step:
+
+  Step 2 — Query expansion:
+    For a claim like "Creatine monohydrate increases lean muscle mass":
+    Generate 2-3 search queries:
+      - Direct: "creatine monohydrate lean muscle mass"
+      - Broader: "creatine supplementation body composition"
+      - Specific: "creatine RCT strength training hypertrophy"
+    Can use LLM for this, or hardcode rule-based expansion for fitness claims.
+    Simpler approach: just use the claim title + a "systematic review" suffix.
+
+  Step 3 — Parallel paper search:
+    const [pubmedResults, arxivResults, s2Results] = await Promise.all([
+      searchPubMed(query, { maxResults: 15 }),
+      searchArxivHealth(query, 10),
+      searchSemanticScholar(query, 15),
+    ]);
+    // Then fetch full PubMed article details
+    const pubmedArticles = await fetchPubMedArticles(pubmedResults.ids);
+
+  Step 4 — Deduplication:
+    Papers from different sources may be the same paper.
+    Dedup hierarchy: DOI match > PMID match > title fuzzy match (>90% similarity).
+    Use a Map keyed by DOI (normalized lowercase, strip URL prefix).
+    For title similarity, use Levenshtein distance or simple token overlap.
+
+  Step 5 — Store papers:
+    Use Prisma upsert with DOI/PMID/arXivId as unique constraint:
+      prisma.paper.upsert({
+        where: { doi: paper.doi },
+        create: { ...paperData },
+        update: { ...paperData },
+      })
+    This ensures we don't duplicate papers across claims.
+
+  Step 6 — Chunking + embedding:
+    For each paper:
+      a. Get text: prefer abstract (available for most papers).
+         If abstract is empty and we have a PMC full-text URL, try fetching PDF.
+         For MVP, abstract-only is fine — most fitness papers have good abstracts.
+      b. Chunk the text using chunkText() from Step 4
+      c. Generate embeddings in batch: generateEmbeddings(chunks.map(c => c.content))
+      d. Store in DocumentChunk table with embedding vector
+
+    Batch embedding to save API calls:
+      - text-embedding-3-small can handle up to 8191 tokens per input
+      - Batch up to 100 inputs per API call
+      - Cost: ~$0.00002 per embedding (very cheap)
+
+  Step 7 — Relevant chunk retrieval (the "R" in RAG):
+    a. Generate embedding for the claim title: generateEmbedding(claim.title)
+    b. Query pgvector for top-K most similar chunks:
+       searchSimilarChunks(claimEmbedding, { limit: 20 })
+    c. Group results by paper
+    d. For each paper, pick top 3-5 most relevant chunks
+    This gives the LLM targeted context rather than full paper text.
+
+  Step 8 — Evidence extraction:
+    For each paper (up to ~15 papers), call gpt-4o-mini with Prompt A:
+      - Input: claim + paper abstract + top relevant chunks
+      - Output: structured evidence card (stance, confidence, summary, etc.)
+    Run in parallel batches of 5 to respect rate limits.
+    Store results in ClaimPaper table.
+
+    Filter: discard papers where relevanceScore < 0.3 (not actually relevant).
+    Keep top 10-15 most relevant papers.
+
+  Step 9 — Verdict synthesis:
+    Call gpt-4o-mini with Prompt B:
+      - Input: claim + all extracted evidence cards
+      - Output: overall verdict JSON
+    Store verdict in Market table:
+      market.aiVerdict = verdict.verdict === "SUPPORTED" ? "YES" : "NO"
+      market.aiConfidence = verdict.confidence
+      market.consensusSummary = verdict.detailedSummary
+      market.status = "ACTIVE" (research complete, voting open)
+
+  Step 10 — Finalize:
+    Update DossierJob status to SUCCEEDED.
+    Update Market.lastDossierAt.
+    Optionally: Send alerts to subscribed users.
+
+================================================================================
+
+STEP 8: Build API endpoints + frontend display
+------------------------------------------------
+
+API endpoints needed:
+
+  POST /api/claims/[claimId]/research
+    - Trigger dossier generation (admin only, or rate-limited)
+    - Creates DossierJob, enqueues BullMQ job
+    - Returns job ID for status polling
+
+  GET /api/claims/[claimId]/research/status
+    - Poll dossier job progress (0-100%)
+    - Returns { status, progress, error }
+
+  GET /api/claims/[claimId]/evidence
+    - Returns evidence cards (ClaimPaper records) for a claim
+    - Each card: paper title, year, study type, stance, summary, confidence
+    - Ordered by relevance score descending
+
+  GET /api/claims/[claimId]/verdict
+    - Returns the AI verdict for a claim
+    - Free: short summary + verdict + confidence
+    - Locked (costs 5 coins): detailed summary + caveats +
+      "what would change verdict" + recommended action
+
+Frontend components needed:
+
+  <VerdictCard />
+    - Shows: verdict badge (Supported/Mixed/Insufficient/Contradicted)
+    - Confidence meter (0-100%)
+    - Short summary (1 sentence)
+    - "Unlock full analysis" button (5 coins) or "Full analysis" if unlocked
+    - Last updated date
+
+  <EvidenceCard />
+    - Paper title + year + journal
+    - Study type badge (RCT, Meta-analysis, etc.)
+    - Stance indicator (green = supports, red = contradicts, gray = neutral)
+    - AI summary (2-3 sentences)
+    - Sample size, effect size if available
+    - Link to original paper
+
+  <EvidenceList />
+    - List of EvidenceCards for a claim
+    - Sort by: relevance, recency, study type
+    - Filter by stance
+
+  <ResearchProgress />
+    - Shows when dossier generation is in progress
+    - Progress bar (0-100%) with step labels
+    - "Searching papers... Extracting evidence... Generating verdict..."
+
+================================================================================
+COST ESTIMATES (per claim processed)
+================================================================================
+
+  Paper search API calls:     $0.00 (PubMed, arXiv, Semantic Scholar are free)
+  Embeddings (~20 papers × ~3 chunks × $0.00002):  ~$0.001
+  Evidence extraction (~15 papers × ~$0.00015):     ~$0.002
+  Verdict synthesis (1 call × ~$0.002):             ~$0.002
+  ─────────────────────────────────────────────────
+  Total per claim:                                  ~$0.005
+
+  At 100 claims seeded:                             ~$0.50
+  At 1000 claims:                                   ~$5.00
+
+  This is extremely cheap. The main cost driver is gpt-4o-mini for evidence
+  extraction and synthesis. Even at scale, it's pennies per claim.
+
+================================================================================
+FILE CREATION / MODIFICATION SUMMARY
+================================================================================
+
+  NEW FILES:
+    src/lib/semantic-scholar.ts     — Semantic Scholar API client
+    src/lib/chunker.ts              — Text chunking utility
+    src/lib/vector-search.ts        — pgvector similarity search
+    src/lib/prompts.ts              — LLM prompt templates
+    src/app/api/claims/[claimId]/research/route.ts        — Trigger research
+    src/app/api/claims/[claimId]/research/status/route.ts — Poll progress
+    src/app/api/claims/[claimId]/evidence/route.ts        — Get evidence cards
+    src/app/api/claims/[claimId]/verdict/route.ts         — Get AI verdict
+    src/components/verdict-card.tsx
+    src/components/evidence-card.tsx
+    src/components/evidence-list.tsx
+    src/components/research-progress.tsx
+
+  MODIFIED FILES:
+    src/lib/pubmed.ts               — Replace fetchPubMedArticles placeholder
+    src/workers/dossier-worker.ts   — Replace all TODO steps with real logic
+    prisma/schema.prisma            — Add pgvector index migration
+    package.json                    — Add fast-xml-parser, pdf-parse
+
+  OPTIONAL / LATER:
+    src/lib/pdf-extract.ts          — PDF text extraction for full-text papers
+    prisma/migrations/xxx_add_vector_index.sql — ivfflat or HNSW index
+
+================================================================================
+IMPLEMENTATION ORDER (recommended)
+================================================================================
+
+  Phase A — Paper retrieval (can test without LLM):
+    1. Install fast-xml-parser
+    2. Fix fetchPubMedArticles() — proper XML parsing
+    3. Build semantic-scholar.ts
+    4. Test: "does searching for 'creatine muscle mass' return real papers?"
+
+  Phase B — Embedding pipeline:
+    5. Build chunker.ts
+    6. Build vector-search.ts
+    7. Add pgvector index SQL
+    8. Test: "can we embed an abstract and retrieve it by similarity?"
+
+  Phase C — Evidence extraction (the RAG core):
+    9. Build prompts.ts (Prompt A + Prompt B)
+    10. Implement Steps 2-10 in dossier-worker.ts
+    11. Test: "run worker on one claim, check evidence cards + verdict"
+
+  Phase D — API + frontend:
+    12. Build API endpoints
+    13. Build frontend components
+    14. Wire claim pages to show verdicts and evidence
+
+  Phase E — Refinement:
+    15. Tune prompts based on real results
+    16. Add query expansion (multiple search queries per claim)
+    17. Add PDF full-text extraction for open access papers
+    18. Add paper recommendations via Semantic Scholar
+    19. Add caching (don't re-process papers already in DB)
+
+================================================================================
+ENVIRONMENT VARIABLES (additions)
+================================================================================
+
+  # Optional — increases Semantic Scholar rate limit
+  SEMANTIC_SCHOLAR_API_KEY=""
+  # Get from: https://www.semanticscholar.org/product/api#api-key
+
+  # Already in .env.example, needed for this feature:
+  OPENAI_API_KEY="..."        # for embeddings + synthesis
+  NCBI_API_KEY="..."          # optional, for PubMed rate limit boost

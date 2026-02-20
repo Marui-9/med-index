@@ -1,6 +1,5 @@
-import { auth } from "@/lib/auth";
-import { redirect } from "next/navigation";
-import Link from "next/link";
+import { Header } from "@/components/header";
+import { Footer } from "@/components/footer";
 
 export default async function ClaimsPage() {
   // This page is accessible to everyone
@@ -8,22 +7,7 @@ export default async function ClaimsPage() {
 
   return (
     <div className="flex min-h-screen flex-col">
-      {/* Header - will be extracted to a component in Phase 1 */}
-      <header className="border-b">
-        <div className="container mx-auto flex h-16 items-center justify-between px-4">
-          <Link href="/" className="text-xl font-bold text-primary">
-            HealthProof
-          </Link>
-          <nav className="flex items-center gap-4">
-            <Link
-              href="/claims"
-              className="text-sm font-medium text-foreground"
-            >
-              Browse Claims
-            </Link>
-          </nav>
-        </div>
-      </header>
+      <Header />
 
       <main className="flex-1">
         <div className="container mx-auto px-4 py-8">
@@ -92,6 +76,8 @@ export default async function ClaimsPage() {
           </p>
         </div>
       </main>
+
+      <Footer />
     </div>
   );
 }

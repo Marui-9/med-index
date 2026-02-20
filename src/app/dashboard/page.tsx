@@ -1,6 +1,7 @@
 import { auth } from "@/lib/auth";
 import { redirect } from "next/navigation";
-import Link from "next/link";
+import { Header } from "@/components/header";
+import { Footer } from "@/components/footer";
 
 export default async function DashboardPage() {
   const session = await auth();
@@ -11,29 +12,7 @@ export default async function DashboardPage() {
 
   return (
     <div className="flex min-h-screen flex-col">
-      {/* Header */}
-      <header className="border-b">
-        <div className="container mx-auto flex h-16 items-center justify-between px-4">
-          <Link href="/" className="text-xl font-bold text-primary">
-            HealthProof
-          </Link>
-          <nav className="flex items-center gap-4">
-            <Link
-              href="/claims"
-              className="text-sm text-muted-foreground hover:text-foreground"
-            >
-              Browse Claims
-            </Link>
-            <div className="flex items-center gap-2 text-sm">
-              <span className="font-medium">{session.user.credits} credits</span>
-              <span className="text-muted-foreground">•</span>
-              <span className="text-muted-foreground">
-                {session.user.reputation} rep
-              </span>
-            </div>
-          </nav>
-        </div>
-      </header>
+      <Header />
 
       <main className="flex-1">
         <div className="container mx-auto px-4 py-8">
@@ -82,6 +61,8 @@ export default async function DashboardPage() {
           </section>
         </div>
       </main>
+
+      <Footer />
     </div>
   );
 }
