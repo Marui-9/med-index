@@ -50,6 +50,13 @@ Why Railway:
   - Pro plan is $20/mo base + usage (well within budget)
   - Handles pgvector via their Postgres offering
 
+Code-side prep already done (in the repo):
+  - railway.toml          — build/deploy config, healthcheck path, worker service
+  - src/lib/env.ts        — Zod schema validates all env vars at startup
+  - src/instrumentation.ts — Next.js hook calls validateEnv(); crashes in prod if vars missing
+  - src/app/api/health/route.ts — /api/health endpoint (DB ping, Redis ping, env readiness)
+  - next.config.ts        — output: "standalone" for optimised Docker/Railway builds
+
 Step-by-step:
 
 1. Create a Railway account
@@ -65,7 +72,8 @@ Step-by-step:
    - Click "New Project" on the dashboard
    - Choose "Deploy from GitHub repo"
    - Select your med-index repository (https://github.com/Marui-9/med-index.git)
-   - Railway will detect the Procfile and create a "web" service automatically
+   - Railway will detect railway.toml and configure build/start/healthcheck automatically
+     (the toml runs prisma generate at build & prisma migrate deploy at start)
 
 4. Add PostgreSQL
    - Inside your project, click "New" > "Database" > "PostgreSQL"
@@ -105,10 +113,17 @@ Step-by-step:
    - Make sure the worker has access to the same DATABASE_URL and REDIS_URL
 
 8. Run initial database migration
-   - In the Railway CLI or via the service shell:
-     railway run npx prisma migrate deploy
-   - Or: add a build command in Railway service settings:
-     Build Command: npm run build && npx prisma migrate deploy
+   - railway.toml already runs `npx prisma migrate deploy` as the start command,
+     so migrations apply automatically on every deploy.
+   - For the very first deploy, verify via the Railway deploy logs that
+     migrations completed successfully.
+   - If you need to run manually: railway run npx prisma migrate deploy
+
+9. Verify health check
+   - After first deploy, visit https://<railway-url>/api/health
+   - Should return {"status":"healthy","services":{"database":true,"redis":true},...}
+   - Railway uses this endpoint (configured in railway.toml) to determine deploy success
+   - If it returns 503, check the "env" field in the response for missing vars
 
 ================================================================================
 PART 3: CONNECT DOMAIN TO RAILWAY
@@ -176,18 +191,28 @@ PART 5: PRE-LAUNCH CHECKS
 
 Before going live, verify:
 
-[ ] npm run build succeeds locally with no errors
-[ ] Database migrations run cleanly (npx prisma migrate deploy)
-[ ] pgvector extension is enabled in production Postgres
+Code-side (run locally):
+[ ] npm run build succeeds with no errors (standalone output)
+[ ] npx vitest run — full test suite green
+[ ] npx prisma migrate deploy runs cleanly against production DB
+
+Infrastructure:
+[ ] pgvector extension is enabled in production Postgres (CREATE EXTENSION vector)
 [ ] All required env vars are set in Railway (AUTH_SECRET, OPENAI_API_KEY, etc.)
+[ ] /api/health returns {"status":"healthy"} after deploy
+[ ] Worker process is running (check Railway dashboard — should show 2 services)
+
+Domain & Auth:
 [ ] OAuth callbacks point to production domain (not localhost)
 [ ] NEXTAUTH_URL matches your actual domain with https://
-[ ] Privacy policy page exists at /privacy (required by Google OAuth)
-[ ] Terms of service page exists at /terms
+[ ] Cloudflare SSL mode is "Full (strict)"
 [ ] Site loads on https://yourdomain.com with valid SSL
 [ ] Auth flow works end-to-end (sign up, sign in, sign out)
-[ ] Worker process is running (check Railway dashboard — should show 2 services)
-[ ] Cloudflare SSL mode is "Full (strict)"
+
+Legal / Content:
+[ ] Privacy policy page exists at /privacy (required by Google OAuth)
+[ ] Terms of service page exists at /terms
+[ ] Seed claims loaded (npx prisma db seed)
 
 ================================================================================
 PART 6: COST BREAKDOWN (ESTIMATED MONTHLY)
