@@ -67,33 +67,115 @@ For the worker, create a separate service with start command: `npm run worker`
 
 ```
 src/
-├── app/                    # Next.js App Router
-│   ├── api/               # API routes
-│   │   └── auth/          # Auth.js routes
-│   ├── auth/              # Auth pages
-│   ├── claims/            # Claims pages
-│   ├── dashboard/         # User dashboard
-│   ├── globals.css        # Global styles
-│   ├── layout.tsx         # Root layout
-│   └── page.tsx           # Home page
-├── components/            # React components
-│   └── ui/                # shadcn/ui components
-├── lib/                   # Utilities and clients
-│   ├── auth.ts           # Auth.js configuration
-│   ├── prisma.ts         # Prisma client
-│   ├── redis.ts          # Redis client
-│   ├── queue.ts          # BullMQ queues
-│   ├── openai.ts         # OpenAI client
-│   ├── pubmed.ts         # PubMed API client
-│   ├── arxiv.ts          # arXiv API client
-│   └── utils.ts          # Utility functions
-├── types/                 # TypeScript types
-│   └── next-auth.d.ts    # Auth.js type extensions
-└── workers/              # Background workers
-    └── dossier-worker.ts # Dossier generation worker
+├── app/                          # Next.js App Router
+│   ├── api/                      # API routes
+│   │   ├── admin/claims/         # Admin CRUD + resolve endpoints
+│   │   ├── auth/                 # Auth.js routes + signup
+│   │   ├── claims/               # Public claims API
+│   │   │   └── [claimId]/        # Claim detail, vote, evidence,
+│   │   │       │                 #   research, verdict, unlock-analysis
+│   │   │       └── research/status/
+│   │   ├── coins/                # Daily-login, history
+│   │   └── health/               # Health-check endpoint
+│   ├── about/                    # About page
+│   ├── admin/                    # Admin dashboard (layout, loading)
+│   ├── auth/                     # Sign-in / sign-up pages
+│   ├── claims/                   # Claims list + detail pages
+│   │   └── [claimId]/            # Claim detail (layout, loading)
+│   ├── coins/                    # Coin balance page
+│   ├── dashboard/                # User dashboard
+│   ├── privacy/                  # Privacy policy
+│   ├── terms/                    # Terms of service
+│   ├── error.tsx                 # Global error boundary
+│   ├── layout.tsx                # Root layout
+│   ├── loading.tsx               # Root loading skeleton
+│   ├── not-found.tsx             # 404 page
+│   ├── page.tsx                  # Home / landing page
+│   ├── robots.ts                 # robots.txt generation
+│   └── sitemap.ts                # sitemap.xml generation
+├── components/                   # React components
+│   ├── admin/                    # Admin-specific components
+│   │   ├── claim-row.tsx         # Claim table row
+│   │   ├── create-claim.tsx      # Create claim form
+│   │   └── resolve-modal.tsx     # Resolve claim modal
+│   ├── ui/                       # shadcn/ui primitives
+│   │   ├── button.tsx
+│   │   ├── card.tsx
+│   │   ├── input.tsx
+│   │   ├── label.tsx
+│   │   └── progress.tsx
+│   ├── claim-card.tsx            # Claim summary card
+│   ├── claims-list.tsx           # Paginated claims list
+│   ├── coin-balance.tsx          # Coin balance display
+│   ├── coin-history.tsx          # Coin transaction history
+│   ├── daily-login-banner.tsx    # Daily login reward banner
+│   ├── evidence-card.tsx         # Single evidence card
+│   ├── evidence-list.tsx         # Evidence list with fetch
+│   ├── footer.tsx                # Site footer
+│   ├── header.tsx                # Site header / navbar
+│   ├── research-progress.tsx     # Research progress poller
+│   ├── session-provider.tsx      # Auth session provider
+│   ├── user-menu.tsx             # User avatar dropdown
+│   ├── verdict-card.tsx          # AI verdict display
+│   └── vote-buttons.tsx          # Yes / No vote buttons
+├── lib/                          # Core business logic & clients
+│   ├── arxiv.ts                  # arXiv API client
+│   ├── auth.ts                   # Auth.js configuration
+│   ├── chunker.ts                # Text chunking for embeddings
+│   ├── cn.ts                     # className utility
+│   ├── coin-service.ts           # Coin ledger operations
+│   ├── env.ts                    # Environment validation (Zod)
+│   ├── openai.ts                 # OpenAI client (embeddings, LLM)
+│   ├── prisma.ts                 # Prisma client singleton
+│   ├── prompts.ts                # LLM prompt templates
+│   ├── pubmed.ts                 # PubMed / NCBI API client
+│   ├── queue.ts                  # BullMQ queue definitions
+│   ├── rate-limit.ts             # In-memory rate limiter
+│   ├── redis.ts                  # Redis connection factory
+│   ├── semantic-scholar.ts       # Semantic Scholar API client
+│   ├── utils.ts                  # General utilities
+│   └── vector-search.ts          # pgvector similarity search
+├── types/
+│   └── next-auth.d.ts            # Auth.js type extensions
+├── workers/
+│   └── dossier-worker.ts         # 10-step RAG pipeline worker
+├── instrumentation.ts            # Next.js instrumentation hook
+└── middleware.ts                  # Security headers middleware
+
+src/__tests__/                    # Test suites (41 files, 408 tests)
+├── api/                          # API route tests
+│   ├── admin/                    # Admin endpoint tests
+│   ├── auth/                     # Auth endpoint tests
+│   ├── claims/                   # Claims endpoint tests
+│   ├── health.test.ts
+│   └── security-validation.test.ts
+├── auth/                         # Auth page component tests
+├── components/                   # Component tests
+├── lib/                          # Library / utility tests
+├── middleware/                    # Middleware tests
+├── pages/                        # Page-level tests
+├── seed/                         # Seed data tests
+├── seo/                          # SEO / metadata tests
+├── workers/                      # Worker tests
+└── setup.ts                      # Test setup (jest-dom matchers)
 
 prisma/
-└── schema.prisma         # Database schema
+├── schema.prisma                 # Database schema (pgvector)
+├── seed.ts                       # Database seeder
+├── seed-data.ts                  # Seed data definitions
+└── sql/
+    └── add_vector_index.sql      # Vector similarity index
+
+docs/                             # Project documentation
+├── architecture.md
+├── economy-frontend.md
+├── economy-v1.md
+├── essential-pages.md
+├── initial-features.md
+├── rag-engine.md
+├── security-seo.md
+├── seed-data-admin.md
+└── voting-flow.md
 ```
 
 ## Tech Stack
@@ -104,7 +186,7 @@ prisma/
 - **Queue**: BullMQ + Redis
 - **Auth**: Auth.js (NextAuth v5)
 - **AI**: OpenAI (embeddings, synthesis)
-- **Data Sources**: PubMed, arXiv
+- **Data Sources**: PubMed, arXiv, Semantic Scholar
 - **UI**: Tailwind CSS, shadcn/ui
 - **Charts**: Recharts
 
@@ -122,14 +204,19 @@ npm run test:watch
 
 ### Test Suites
 
-| Suite | Tests | Covers |
-|-------|-------|--------|
-| `api/auth/signup` | 8 | Zod validation, duplicate-email check, signup & newsletter bonuses, DB error handling |
-| `auth/signin` | 7 | Credentials form submission, OAuth button triggers, error display, loading states |
-| `auth/signup` | 7 | API call → auto sign-in flow, newsletter checkbox, duplicate errors, loading states |
-| `components/user-menu` | 8 | Authenticated/unauthenticated states, dropdown toggle, sign-out, outside-click close |
+| Area | Files | Tests | Covers |
+|------|-------|-------|--------|
+| API routes | 13 | ~110 | Auth, claims CRUD, voting, evidence, research, admin, coins, health |
+| Components | 13 | ~130 | Claim cards, evidence list, vote buttons, research progress, admin UI |
+| Auth pages | 2 | 14 | Sign-in / sign-up flows, OAuth, error states |
+| Libraries | 7 | ~90 | Chunker, rate-limit, prompts, env validation, vector search, PubMed, Semantic Scholar |
+| Workers | 1 | 19 | Full RAG pipeline, error handling, verdict mapping |
+| Pages | 3 | ~25 | Essential pages, loading skeletons, error boundaries |
+| Middleware | 1 | 3 | Security headers |
+| SEO | 1 | ~10 | Metadata, Open Graph |
+| Seed | 1 | 9 | Seed data integrity |
 
-**Total: 30 tests across 4 files**
+**Total: 408 tests across 41 files**
 
 ### Writing Tests
 
@@ -140,11 +227,11 @@ npm run test:watch
 
 ## Development Phases
 
-- [x] **Phase 0**: Project foundation
-- [x] **Phase 1 (Coin System)**: Auditable ledger, reduced rewards, improved sinks
-- [ ] **Phase 1 (Research)**: AI paper analysis & evidence dashboard
+- [x] **Phase 0**: Project foundation (auth, DB, deployment config)
+- [x] **Phase 1 (Coin System)**: Auditable ledger, daily login, voting rewards, analysis unlock
+- [x] **Phase 1 (Research)**: 10-step RAG pipeline — PubMed/arXiv/S2 search, chunking, embeddings, vector search, LLM evidence extraction & verdict synthesis
 - [ ] **Phase 2**: Social sentiment & forecasting with pool betting
-- [ ] **Phase 3**: Monetization & gating
+- [ ] **Phase 3**: Monetization & gating (Stripe)
 
 ## License
 
