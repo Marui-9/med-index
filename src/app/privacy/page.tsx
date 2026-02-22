@@ -134,7 +134,7 @@ export default function PrivacyPage() {
               </h2>
               <p>
                 We may update this policy from time to time. Changes will be
-                posted on this page with an updated "Last updated" date.
+                posted on this page with an updated &ldquo;Last updated&rdquo; date.
               </p>
             </section>
 

@@ -63,7 +63,7 @@ export default async function DashboardPage() {
           <section className="mb-8">
             <h2 className="mb-4 text-xl font-semibold">Pending Reveals</h2>
             <p className="text-sm text-muted-foreground">
-              Claims you've voted on that haven't been revealed yet.
+              Claims you&apos;ve voted on that haven&apos;t been revealed yet.
             </p>
             <div className="mt-4 rounded-lg border border-dashed p-8 text-center text-muted-foreground">
               No pending reveals. Vote on some claims!

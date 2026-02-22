@@ -1,4 +1,4 @@
-import { Queue, Worker, Job } from "bullmq";
+import { Queue, Worker, Job, type ConnectionOptions } from "bullmq";
 import { createRedisConnection } from "@/lib/redis";
 
 // Queue names
@@ -20,7 +20,7 @@ export interface PaperAlertJobData {
 
 // Create queues (used by the web app to add jobs)
 export const dossierQueue = new Queue<DossierJobData>(QUEUE_NAMES.DOSSIER, {
-  connection: createRedisConnection(),
+  connection: createRedisConnection() as unknown as ConnectionOptions,
   defaultJobOptions: {
     attempts: 3,
     backoff: {
@@ -39,7 +39,7 @@ export const dossierQueue = new Queue<DossierJobData>(QUEUE_NAMES.DOSSIER, {
 export const paperAlertQueue = new Queue<PaperAlertJobData>(
   QUEUE_NAMES.PAPER_ALERTS,
   {
-    connection: createRedisConnection(),
+    connection: createRedisConnection() as unknown as ConnectionOptions,
     defaultJobOptions: {
       attempts: 3,
       backoff: {

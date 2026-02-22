@@ -78,7 +78,7 @@ export default async function HomePage() {
                 </div>
                 <h3 className="mb-2 text-xl font-semibold">Vote on Claims</h3>
                 <p className="text-muted-foreground">
-                  See health claims like "Vitamin D prevents colds" and vote YES
+                  See health claims like &ldquo;Vitamin D prevents colds&rdquo; and vote YES
                   or NO based on your intuition.
                 </p>
               </div>

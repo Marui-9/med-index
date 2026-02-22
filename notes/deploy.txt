@@ -1,0 +1,20 @@
+everything is ready for deployment. Here's the summary:
+
+Check	Status
+Production build (npm run build)	Passed (Next.js 15.5.12, 21 pages)
+Type checking	Passed (0 errors, warnings only)
+ESLint	Passed (0 errors, warnings only)
+Test suite	408/408 passed across 41 files
+Prisma client	Generated (v6.19.2)
+Fixes applied this session:
+
+route.ts:14 — wrapped params in Promise<> for Next.js 15 compatibility
+queue.ts:23 — cast Redis connection to fix ioredis version mismatch between top-level and BullMQ's bundled copy
+dossier-worker.ts:531 — fixed Prisma JSON field type with JSON.parse(JSON.stringify())
+rate-limit.ts:51 — removed deprecated request.ip (dropped in Next.js 15.5)
+To deploy to Railway, you'll need to:
+
+Provision PostgreSQL (with pgvector extension) + Redis services
+Set environment variables (see .env.example — DATABASE_URL, REDIS_URL, AUTH_SECRET, NEXTAUTH_URL, OAuth keys, OPENAI_API_KEY, NCBI_API_KEY)
+Update OAuth redirect URIs to your production domain
+Push to your connected repo — Railway will auto-build using your railway.toml

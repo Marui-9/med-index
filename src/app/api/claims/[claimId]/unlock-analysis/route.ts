@@ -11,7 +11,7 @@ import { prisma } from "@/lib/prisma";
  */
 export async function POST(
   request: NextRequest,
-  { params }: { params: { claimId: string } }
+  { params }: { params: Promise<{ claimId: string }> }
 ) {
   try {
     const session = await auth();
@@ -23,7 +23,7 @@ export async function POST(
       );
     }
 
-    const { claimId } = params;
+    const { claimId } = await params;
 
     // Verify claim exists
     const claim = await prisma.claim.findUnique({

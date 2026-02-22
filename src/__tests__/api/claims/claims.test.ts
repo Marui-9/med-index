@@ -274,7 +274,7 @@ describe("POST /api/claims", () => {
       });
 
     // Mock transaction — execute the callback with a fake tx
-    mockTransaction.mockImplementation(async (fn: Function) => {
+    mockTransaction.mockImplementation(async (fn: (tx: unknown) => unknown) => {
       const tx = {
         claim: {
           create: vi.fn().mockResolvedValue({

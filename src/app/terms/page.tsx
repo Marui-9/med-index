@@ -24,7 +24,7 @@ export default function TermsPage() {
                 1. Acceptance of Terms
               </h2>
               <p>
-                By accessing or using HealthProof ("the Service"), you agree to
+                By accessing or using HealthProof (&ldquo;the Service&rdquo;), you agree to
                 be bound by these Terms of Service. If you do not agree, do not
                 use the Service.
               </p>
@@ -134,7 +134,7 @@ export default function TermsPage() {
                 8. Limitation of Liability
               </h2>
               <p>
-                HealthProof is provided "as is" without warranties of any kind.
+                HealthProof is provided &ldquo;as is&rdquo; without warranties of any kind.
                 We are not liable for decisions made based on AI verdicts,
                 community votes, or cited research. Use the platform at your own
                 risk.

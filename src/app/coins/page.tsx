@@ -29,7 +29,7 @@ export default async function CoinsPage() {
             <div>
               <h1 className="text-3xl font-bold">Coin History</h1>
               <p className="mt-1 text-muted-foreground">
-                Track every coin you've earned and spent.
+                Track every coin you&apos;ve earned and spent.
               </p>
             </div>
             <div className="rounded-lg border p-4 text-center">

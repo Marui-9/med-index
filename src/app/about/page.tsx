@@ -41,8 +41,8 @@ export default function AboutPage() {
               <ol className="list-decimal space-y-3 pl-6 text-muted-foreground">
                 <li>
                   <strong>Browse claims</strong> — We publish popular health and
-                  fitness claims like "Creatine increases muscle mass" or "Cold
-                  plunges speed recovery."
+                  fitness claims like &ldquo;Creatine increases muscle mass&rdquo; or &ldquo;Cold
+                  plunges speed recovery.&rdquo;
                 </li>
                 <li>
                   <strong>Vote YES or NO</strong> — Spend 1 coin to predict

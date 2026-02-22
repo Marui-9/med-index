@@ -182,7 +182,7 @@ describe("POST /api/claims/[claimId]/vote", () => {
     const now = new Date("2026-02-20T12:00:00Z");
     vi.setSystemTime(now);
 
-    mockTransaction.mockImplementation(async (fn: Function) => {
+    mockTransaction.mockImplementation(async (fn: (tx: unknown) => unknown) => {
       const tx = {
         claimVote: {
           create: vi.fn().mockResolvedValue({
@@ -246,7 +246,7 @@ describe("POST /api/claims/[claimId]/vote", () => {
       eventId: "evt-2",
     });
 
-    mockTransaction.mockImplementation(async (fn: Function) => {
+    mockTransaction.mockImplementation(async (fn: (tx: unknown) => unknown) => {
       const tx = {
         claimVote: {
           create: vi.fn().mockResolvedValue({
